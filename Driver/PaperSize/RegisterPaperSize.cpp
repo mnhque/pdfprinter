@@ -19,8 +19,9 @@ namespace
     constexpr LONG kHeight =
         6000;
 
-    // Small margins so the form can be used by normal
-    // Windows printer drivers.
+    // Printable area.
+    // Zero margins allow the printer driver to determine
+    // the actual printable area.
     constexpr LONG kLeftMargin =
         0;
 
@@ -36,7 +37,7 @@ namespace
 
 
 // ------------------------------------------------------------
-// Register 4x6 form
+// Register North America 4x6 form
 // ------------------------------------------------------------
 
 DWORD RegisterNorthAmerica4x6Form(
@@ -50,9 +51,9 @@ DWORD RegisterNorthAmerica4x6Form(
         PRINTER_ACCESS_ADMINISTER;
 
 
-    //
-    // Open printer with administration rights.
-    //
+    // --------------------------------------------------------
+    // Open printer with administration rights
+    // --------------------------------------------------------
 
     if (!OpenPrinterW(
             const_cast<LPWSTR>(
@@ -64,9 +65,9 @@ DWORD RegisterNorthAmerica4x6Form(
     }
 
 
-    //
-    // Build the 4x6 form structure.
-    //
+    // --------------------------------------------------------
+    // Build the 4x6 form
+    // --------------------------------------------------------
 
     FORM_INFO_1W form = {};
 
@@ -77,21 +78,25 @@ DWORD RegisterNorthAmerica4x6Form(
             kFormName);
 
 
+    // --------------------------------------------------------
+    // IMPORTANT:
     //
-    // Form dimensions are expressed in
-    // thousandths of an inch.
+    // FORM_INFO_1W::Size is a Windows SIZE structure.
+    // SIZE uses cx and cy, NOT Width and Height.
     //
+    // Dimensions are expressed in thousandths of an inch.
+    // --------------------------------------------------------
 
-    form.Size.Width =
+    form.Size.cx =
         kWidth;
 
-    form.Size.Height =
+    form.Size.cy =
         kHeight;
 
 
-    //
-    // Printable area.
-    //
+    // --------------------------------------------------------
+    // Printable area
+    // --------------------------------------------------------
 
     form.ImageableArea.left =
         kLeftMargin;
@@ -110,11 +115,13 @@ DWORD RegisterNorthAmerica4x6Form(
             : kHeight;
 
 
-    //
-    // Check whether the form already exists.
-    //
+    // --------------------------------------------------------
+    // Check whether the form already exists
+    // --------------------------------------------------------
 
     DWORD needed = 0;
+
+    SetLastError(ERROR_SUCCESS);
 
     GetFormW(
         hPrinter,
@@ -125,14 +132,16 @@ DWORD RegisterNorthAmerica4x6Form(
         0,
         &needed);
 
+    DWORD getFormError =
+        GetLastError();
 
-    if (GetLastError() ==
+
+    if (getFormError ==
         ERROR_INSUFFICIENT_BUFFER)
     {
-        //
         // The form already exists.
-        // That is fine for repair/reinstall.
-        //
+        // This is considered success so that
+        // repair/reinstall operations remain idempotent.
 
         ClosePrinter(hPrinter);
 
@@ -140,9 +149,9 @@ DWORD RegisterNorthAmerica4x6Form(
     }
 
 
-    //
-    // Add the form.
-    //
+    // --------------------------------------------------------
+    // Add the form
+    // --------------------------------------------------------
 
     if (!AddFormW(
             hPrinter,
@@ -155,9 +164,10 @@ DWORD RegisterNorthAmerica4x6Form(
 
         ClosePrinter(hPrinter);
 
-        //
-        // Treat an existing form as success.
-        //
+
+        // The form may have been created by another
+        // installation/repair operation between the
+        // GetFormW check and AddFormW.
 
         if (error ==
             ERROR_ALREADY_EXISTS)
@@ -169,6 +179,10 @@ DWORD RegisterNorthAmerica4x6Form(
     }
 
 
+    // --------------------------------------------------------
+    // Successfully registered
+    // --------------------------------------------------------
+
     ClosePrinter(hPrinter);
 
     return ERROR_SUCCESS;
@@ -176,7 +190,7 @@ DWORD RegisterNorthAmerica4x6Form(
 
 
 // ------------------------------------------------------------
-// Unregister 4x6 form
+// Unregister North America 4x6 form
 // ------------------------------------------------------------
 
 DWORD UnregisterNorthAmerica4x6Form(
@@ -190,6 +204,10 @@ DWORD UnregisterNorthAmerica4x6Form(
         PRINTER_ACCESS_ADMINISTER;
 
 
+    // --------------------------------------------------------
+    // Open printer with administration rights
+    // --------------------------------------------------------
+
     if (!OpenPrinterW(
             const_cast<LPWSTR>(
                 printerName.c_str()),
@@ -200,9 +218,9 @@ DWORD UnregisterNorthAmerica4x6Form(
     }
 
 
-    //
-    // Delete the form.
-    //
+    // --------------------------------------------------------
+    // Delete the form
+    // --------------------------------------------------------
 
     BOOL result =
         DeleteFormW(
@@ -212,20 +230,27 @@ DWORD UnregisterNorthAmerica4x6Form(
 
 
     DWORD error =
-        GetLastError();
+        result
+            ? ERROR_SUCCESS
+            : GetLastError();
 
 
     ClosePrinter(hPrinter);
 
 
+    // --------------------------------------------------------
+    // Successful deletion
+    // --------------------------------------------------------
+
     if (result)
+    {
         return ERROR_SUCCESS;
+    }
 
 
-    //
-    // If the form doesn't exist,
-    // removal is already complete.
-    //
+    // --------------------------------------------------------
+    // If the form doesn't exist, removal is already complete.
+    // --------------------------------------------------------
 
     if (error ==
         ERROR_FILE_NOT_FOUND)
