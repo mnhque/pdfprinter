@@ -1,4 +1,0 @@
-LIBRARY PDFPrinter.CustomActions
-EXPORTS
-    RegisterPrinter
-    UnregisterPrinter
