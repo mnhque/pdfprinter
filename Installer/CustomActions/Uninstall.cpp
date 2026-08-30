@@ -95,7 +95,7 @@ UINT __stdcall UnregisterPrinter(MSIHANDLE hInstall)
     // (`msiexec /x ... /L*v uninstall.log`).
 
     LogMsi(hInstall, L"Removing North America 4x6 paper size...");
-    RemoveNorthAmerica4x6Form(kPrinterName);
+    // RemoveNorthAmerica4x6Form(kPrinterName);
 
     LogMsi(hInstall, L"Removing printer queue \"PDF Printer\"...");
     if (!DeletePrinterQueue())
