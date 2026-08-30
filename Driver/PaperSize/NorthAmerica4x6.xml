@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PrintCapabilities feature-override fragment for the "North America 4x6"
+  page media size, expressed in the Print Schema (psf/psk) vocabulary that
+  PrintTicket/PrintCapabilities-aware applications (Word, Edge, Chrome, any
+  WPF/UWP print pipeline) read to populate their own paper-size pickers by
+  name rather than falling back to "Custom".
+
+  This fragment is merged into the driver's reported PrintCapabilities by the
+  Conversion Service's capabilities provider (see ConversionService's
+  PrintCapabilitiesMerge, invoked from the driver's GetPrintCapabilities
+  pass-through) — the Win32 Forms API registration in RegisterPaperSize.cpp
+  independently covers the GDI/legacy Print dialog "Paper size" dropdown, so
+  both modern (PrintTicket) and legacy (DEVMODE) applications see the size.
+
+  Dimensions are expressed in the Print Schema's base unit, 1/96 inch:
+    4 in  = 384  (96ths)
+    6 in  = 576  (96ths)
+  which is exactly 101.6 mm x 152.4 mm (4.000in x 6.000in, no rounding).
+-->
+<psf:PrintCapabilities
+    xmlns:psf="http://schemas.microsoft.com/windows/2003/08/printing/printschemaframework"
+    xmlns:psk="http://schemas.microsoft.com/windows/2003/08/printing/printschemakeywords">
+
+  <psf:Feature name="psk:PageMediaSize">
+    <psf:Option name="psk:NorthAmerica4x6" constrained="psk:None">
+      <psf:ScoredProperty name="psk:MediaSizeWidth">
+        <psf:Value xsi:type="xsd:integer"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xmlns:xsd="http://www.w3.org/2001/XMLSchema">10160</psf:Value>
+        <!-- value in Print Schema's 1/100 mm base unit: 101.6 mm = 10160 -->
+      </psf:ScoredProperty>
+      <psf:ScoredProperty name="psk:MediaSizeHeight">
+        <psf:Value xsi:type="xsd:integer"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xmlns:xsd="http://www.w3.org/2001/XMLSchema">15240</psf:Value>
+        <!-- 152.4 mm = 15240 (1/100 mm) -->
+      </psf:ScoredProperty>
+      <psf:Property name="psk:DisplayName">
+        <psf:Value xsi:type="xsd:string"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xmlns:xsd="http://www.w3.org/2001/XMLSchema">North America 4x6</psf:Value>
+      </psf:Property>
+    </psf:Option>
+  </psf:Feature>
+
+</psf:PrintCapabilities>

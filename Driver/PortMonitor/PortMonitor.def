@@ -1,0 +1,3 @@
+LIBRARY pdfpm
+EXPORTS
+    InitializePrintMonitor2
