@@ -1,0 +1,206 @@
+name: Build PDF Printer Setup
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Windows Installer
+    runs-on: windows-latest
+
+    steps:
+      # ------------------------------------------------------------
+      # 1. Download the repository
+      # ------------------------------------------------------------
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------
+      # 2. Install .NET 8
+      # ------------------------------------------------------------
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # ------------------------------------------------------------
+      # 3. Setup MSBuild / Visual Studio
+      # ------------------------------------------------------------
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      # ------------------------------------------------------------
+      # 4. Install WiX Toolset 4
+      # ------------------------------------------------------------
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 4.0.4
+          wix --version
+
+      # ------------------------------------------------------------
+      # 5. Download Ghostscript 64-bit
+      #
+      # The project requires:
+      #   Scripts/redist/ghostscript/gswin64c.exe
+      #   Scripts/redist/ghostscript/gsdll64.dll
+      #
+      # Ghostscript 10.07.1 is the current release referenced by
+      # the official Artifex download repository.
+      # ------------------------------------------------------------
+      - name: Download Ghostscript
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $gsDir = Join-Path $env:GITHUB_WORKSPACE "Scripts\redist\ghostscript"
+
+          New-Item -ItemType Directory -Force -Path $gsDir | Out-Null
+
+          $gsInstaller = Join-Path $env:RUNNER_TEMP "gs10071w64.exe"
+
+          Write-Host "Downloading Ghostscript..."
+          Invoke-WebRequest `
+            -Uri "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10071/gs10071w64.exe" `
+            -OutFile $gsInstaller
+
+          Write-Host "Extracting Ghostscript..."
+
+          $extractDir = Join-Path $env:RUNNER_TEMP "ghostscript-extracted"
+
+          if (Test-Path $extractDir) {
+              Remove-Item $extractDir -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+
+          7z x $gsInstaller "-o$extractDir" -y
+
+          Write-Host "Searching for Ghostscript binaries..."
+
+          $gsExe = Get-ChildItem `
+            -Path $extractDir `
+            -Filter "gswin64c.exe" `
+            -Recurse `
+            -File |
+            Select-Object -First 1
+
+          $gsDll = Get-ChildItem `
+            -Path $extractDir `
+            -Filter "gsdll64.dll" `
+            -Recurse `
+            -File |
+            Select-Object -First 1
+
+          if (-not $gsExe) {
+              throw "gswin64c.exe was not found after extracting Ghostscript."
+          }
+
+          if (-not $gsDll) {
+              throw "gsdll64.dll was not found after extracting Ghostscript."
+          }
+
+          Copy-Item $gsExe.FullName `
+            (Join-Path $gsDir "gswin64c.exe") `
+            -Force
+
+          Copy-Item $gsDll.FullName `
+            (Join-Path $gsDir "gsdll64.dll") `
+            -Force
+
+          Write-Host ""
+          Write-Host "Ghostscript staged successfully:"
+          Get-ChildItem $gsDir
+
+      # ------------------------------------------------------------
+      # 6. Verify required source files
+      # ------------------------------------------------------------
+      - name: Verify project files
+        shell: pwsh
+        run: |
+          $required = @(
+            "PDFPrinter.sln",
+            "Scripts\build-all.ps1",
+            "Scripts\package-ghostscript.ps1",
+            "Driver\PortMonitor\PortMonitor.vcxproj",
+            "Installer\CustomActions\PDFPrinter.CustomActions.vcxproj",
+            "Installer\PDFPrinter.Installer.wixproj",
+            "Installer\Product.wxs",
+            "PDFEngine\ConversionService\PDFPrinter.ConversionService.csproj",
+            "Configuration\ConfigApp\PDFPrinter.ConfigApp.csproj",
+            "Scripts\redist\ghostscript\gswin64c.exe",
+            "Scripts\redist\ghostscript\gsdll64.dll"
+          )
+
+          foreach ($file in $required) {
+              if (-not (Test-Path $file)) {
+                  throw "Required file is missing: $file"
+              }
+
+              Write-Host "OK: $file"
+          }
+
+      # ------------------------------------------------------------
+      # 7. Build everything
+      #
+      # This calls the project's existing build-all.ps1.
+      # It builds:
+      #   - pdfpm.dll
+      #   - custom actions DLL
+      #   - .NET conversion service
+      #   - WPF configuration application
+      #   - WiX installer
+      # ------------------------------------------------------------
+      - name: Build PDF Printer
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+          .\Scripts\build-all.ps1 `
+            -Configuration Release `
+            -Platform x64
+
+      # ------------------------------------------------------------
+      # 8. Find the generated installer
+      # ------------------------------------------------------------
+      - name: Locate installer
+        shell: pwsh
+        run: |
+          Write-Host "Searching for generated installer..."
+
+          $files = Get-ChildItem `
+            -Path $env:GITHUB_WORKSPACE `
+            -Filter "PDF Printer Setup.exe" `
+            -Recurse `
+            -File
+
+          if (-not $files) {
+              Write-Host ""
+              Write-Host "Installer was NOT found."
+              Write-Host ""
+              Write-Host "Contents of Installer directory:"
+              Get-ChildItem `
+                -Path "$env:GITHUB_WORKSPACE\Installer" `
+                -Recurse `
+                -ErrorAction SilentlyContinue
+
+              throw "PDF Printer Setup.exe was not generated."
+          }
+
+          foreach ($file in $files) {
+              Write-Host "FOUND: $($file.FullName)"
+          }
+
+      # ------------------------------------------------------------
+      # 9. Upload the EXE as a GitHub Actions artifact
+      # ------------------------------------------------------------
+      - name: Upload PDF Printer Setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDF-Printer-Setup
+          path: '**/PDF Printer Setup.exe'
+          if-no-files-found: error
+          compression-level: 0
