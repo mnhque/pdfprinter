@@ -1,9 +1,3 @@
-// PortMonitor.h
-//
-// Declarations for the PDF Printer port monitor (pdfpm.dll).
-//
-// This implements the documented Windows Print Spooler Monitor2 SPI.
-
 #pragma once
 
 #include <windows.h>
@@ -22,24 +16,17 @@
 #define PDFPRINTER_SPOOL_DIR    L"\\ProgramData\\PDFPrinter\\Spool"
 #define PDFPRINTER_PIPE_NAME    L"\\\\.\\pipe\\PDFPrinterJobReady"
 
-// One open port instance == one in-flight print job.
 struct PdfPrinterPort
 {
-    std::wstring    portName;       // e.g. "PDFPRT1:"
-    std::wstring    jobFilePath;    // %ProgramData%\PDFPrinter\Spool\<guid>.xps
-    std::wstring    jobId;          // <guid>
-    HANDLE          fileHandle = INVALID_HANDLE_VALUE;
-    DWORD           jobIdSpooler = 0;
-    std::wstring    printerName;
-    std::wstring    userSid;
-    std::mutex      writeLock;
+    std::wstring portName;
+    std::wstring jobFilePath;
+    std::wstring jobId;
+    HANDLE fileHandle = INVALID_HANDLE_VALUE;
+    DWORD jobIdSpooler = 0;
+    std::wstring printerName;
+    std::wstring userSid;
+    std::mutex writeLock;
 };
-
-// ---------------------------------------------------------------------------
-// Monitor2 entry points.
-//
-// These signatures must match the Windows SDK definitions in winsplp.h.
-// ---------------------------------------------------------------------------
 
 BOOL WINAPI Pdf_OpenPort(
     HANDLE hMonitor,
@@ -77,8 +64,6 @@ BOOL WINAPI Pdf_XcvOpenPort(
     ACCESS_MASK GrantedAccess,
     PHANDLE phXcv);
 
-// IMPORTANT:
-// MONITOR2::pfnXcvDataPort returns DWORD, not BOOL.
 DWORD WINAPI Pdf_XcvDataPort(
     HANDLE hXcv,
     LPCWSTR pszDataName,
@@ -90,10 +75,6 @@ DWORD WINAPI Pdf_XcvDataPort(
 
 BOOL WINAPI Pdf_XcvClosePort(
     HANDLE hXcv);
-
-// ---------------------------------------------------------------------------
-// Job lifecycle helpers implemented in SpoolWriter.cpp
-// ---------------------------------------------------------------------------
 
 bool EnsureSpoolDirectoryExists();
 
