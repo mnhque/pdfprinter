@@ -186,24 +186,33 @@ BOOL WINAPI Pdf_XcvOpenPort(HANDLE /*hMonitor*/, LPCWSTR /*pszObject*/,
     return TRUE;
 }
 
-BOOL WINAPI Pdf_XcvDataPort(HANDLE /*hXcv*/, LPCWSTR pszDataName, PBYTE /*pInputData*/,
-                             DWORD /*cbInputData*/, PBYTE pOutputData, DWORD cbOutputData,
-                             PDWORD pcbOutputNeeded)
+DWORD WINAPI Pdf_XcvDataPort(
+    HANDLE /*hXcv*/,
+    LPCWSTR pszDataName,
+    PBYTE /*pInputData*/,
+    DWORD /*cbInputData*/,
+    PBYTE pOutputData,
+    DWORD cbOutputData,
+    PDWORD pcbOutputNeeded)
 {
     if (pszDataName && lstrcmpW(pszDataName, L"MonitorUI") == 0)
     {
         static const wchar_t uiDll[] = L"pdfpmui.dll";
+
         *pcbOutputNeeded = sizeof(uiDll);
+
         if (cbOutputData >= sizeof(uiDll) && pOutputData)
         {
             memcpy(pOutputData, uiDll, sizeof(uiDll));
-            return TRUE;
+            return ERROR_SUCCESS;
         }
+
         SetLastError(ERROR_INSUFFICIENT_BUFFER);
-        return FALSE;
+        return ERROR_INSUFFICIENT_BUFFER;
     }
+
     SetLastError(ERROR_NOT_SUPPORTED);
-    return FALSE;
+    return ERROR_NOT_SUPPORTED;
 }
 
 BOOL WINAPI Pdf_XcvClosePort(HANDLE /*hXcv*/) { return TRUE; }
@@ -215,9 +224,12 @@ BOOL WINAPI Pdf_XcvClosePort(HANDLE /*hXcv*/) { return TRUE; }
 static MONITOR2 g_monitor2 = {0};
 
 extern "C" __declspec(dllexport)
-PMONITOR2 WINAPI InitializePrintMonitor2(PMONITORINIT /*pMonitorInit*/, PHANDLE phMonitor)
+LPMONITOR2 WINAPI InitializePrintMonitor2(
+    PMONITORINIT /*pMonitorInit*/,
+    PHANDLE phMonitor)
 {
     ZeroMemory(&g_monitor2, sizeof(g_monitor2));
+
     g_monitor2.cbSize          = sizeof(MONITOR2);
     g_monitor2.pfnOpenPort     = Pdf_OpenPort;
     g_monitor2.pfnStartDocPort = Pdf_StartDocPort;
@@ -230,6 +242,7 @@ PMONITOR2 WINAPI InitializePrintMonitor2(PMONITORINIT /*pMonitorInit*/, PHANDLE 
     g_monitor2.pfnXcvClosePort = Pdf_XcvClosePort;
 
     *phMonitor = reinterpret_cast<HANDLE>(&g_monitor2);
+
     return &g_monitor2;
 }
 
