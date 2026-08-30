@@ -68,6 +68,7 @@ Step "Building MSI/EXE installer (WiX v4)" {
     Push-Location "$root\Installer"
     try {
         & $script:msbuildPath "PDFPrinter.Installer.wixproj" `
+            /restore `
             /p:Configuration=$Configuration `
             /p:Platform=$Platform `
             /m
