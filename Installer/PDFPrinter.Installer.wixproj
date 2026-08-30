@@ -3,6 +3,7 @@
   <PropertyGroup>
     <OutputType>Package</OutputType>
     <OutputName>PDF Printer Setup</OutputName>
+
     <DefineConstants>
       ConfigAppPublishDir=..\Configuration\ConfigApp\bin\Release\net8.0-windows\win-x64\publish;
       ServicePublishDir=..\PDFEngine\ConversionService\bin\Release\net8.0-windows\win-x64\publish;
@@ -11,15 +12,18 @@
     </DefineConstants>
   </PropertyGroup>
 
+  <!-- WiX extensions required by Product.wxs -->
   <ItemGroup>
     <PackageReference Include="WixToolset.Util.wixext" Version="4.0.4" />
     <PackageReference Include="WixToolset.UI.wixext" Version="4.0.4" />
   </ItemGroup>
 
+  <!-- Main installer definition -->
   <ItemGroup>
     <Compile Include="Product.wxs" />
   </ItemGroup>
 
+  <!-- Custom actions DLL project -->
   <ItemGroup>
     <ProjectReference Include="CustomActions\PDFPrinter.CustomActions.vcxproj" />
   </ItemGroup>
