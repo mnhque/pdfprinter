@@ -73,7 +73,7 @@ BOOL WINAPI Pdf_StartDocPort(HANDLE hPort, LPWSTR pPrinterName, DWORD JobId,
     // can show the Save dialog in the correct interactive session rather than
     // guessing.
     HANDLE hToken = nullptr;
-    wchar_t sidBuf[256] = {0};
+    
     if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken))
     {
         DWORD needed = 0;
