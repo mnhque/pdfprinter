@@ -67,7 +67,10 @@ Step "Staging Ghostscript redistributable" {
 Step "Building MSI/EXE installer (WiX v4)" {
     Push-Location "$root\Installer"
     try {
-        dotnet build PDFPrinter.Installer.wixproj -c $Configuration
+        & $script:msbuildPath "PDFPrinter.Installer.wixproj" `
+            /p:Configuration=$Configuration `
+            /p:Platform=$Platform `
+            /m
     }
     finally {
         Pop-Location
