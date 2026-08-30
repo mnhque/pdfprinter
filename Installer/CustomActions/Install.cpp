@@ -1,19 +1,15 @@
 // Install.cpp
 //
-// Exports RegisterPrinter, the MSI deferred custom action invoked by
-// Product.wxs (Execute="deferred" Impersonate="no") after InstallFiles.
-// Because Impersonate="no", this runs as LocalSystem with full rights,
-// which is required for AddPrinterDriver/AddMonitor/AddPrinter/AddForm.
-//
-// This performs the real Win32 Print Spooler registration described in
-// README.md section 1.5 — no manual post-install configuration is required
-// from the end user.
+// PDF Printer MSI deferred custom action.
+// Registers the printer driver, port monitor, port, printer queue,
+// and North America 4x6 paper form.
 
 #include <windows.h>
 #include <msiquery.h>
 #include <winspool.h>
 #include <string>
 #include <vector>
+
 #include "RegisterPaperSize.h"
 
 #pragma comment(lib, "msi.lib")
@@ -21,158 +17,507 @@
 
 namespace
 {
-    constexpr wchar_t kDriverName[]   = L"Microsoft XPS Document Writer v4"; // Microsoft-signed, inbox
-    constexpr wchar_t kMonitorName[]  = L"PDF Printer Port Monitor";
-    constexpr wchar_t kMonitorDll[]   = L"pdfpm.dll";
-    constexpr wchar_t kPortName[]     = L"PDFPRT1:";
-    constexpr wchar_t kPrinterName[]  = L"PDF Printer";
+    constexpr wchar_t kDriverName[] =
+        L"Microsoft XPS Document Writer v4";
 
-    void LogMsi(MSIHANDLE hInstall, const std::wstring& message)
+    constexpr wchar_t kMonitorName[] =
+        L"PDF Printer Port Monitor";
+
+    constexpr wchar_t kMonitorDll[] =
+        L"pdfpm.dll";
+
+    constexpr wchar_t kPortName[] =
+        L"PDFPRT1:";
+
+    constexpr wchar_t kPrinterName[] =
+        L"PDF Printer";
+
+
+    // ---------------------------------------------------------
+    // MSI logging
+    // ---------------------------------------------------------
+
+    void LogMsi(
+        MSIHANDLE hInstall,
+        const std::wstring& message)
     {
-        PMSIHANDLE hRecord = MsiCreateRecord(1);
-        MsiRecordSetStringW(hRecord, 0, (L"PDFPrinter: " + message).c_str());
-        MsiProcessMessage(hInstall, INSTALLMESSAGE_INFO, hRecord);
+        PMSIHANDLE hRecord =
+            MsiCreateRecord(1);
+
+        if (!hRecord)
+            return;
+
+        std::wstring text =
+            L"PDFPrinter: " + message;
+
+        MsiRecordSetStringW(
+            hRecord,
+            0,
+            text.c_str());
+
+        MsiProcessMessage(
+            hInstall,
+            INSTALLMESSAGE_INFO,
+            hRecord);
     }
 
-    std::wstring GetInstallFolder(MSIHANDLE hInstall)
+
+    // ---------------------------------------------------------
+    // Get installation folder
+    // ---------------------------------------------------------
+
+    std::wstring GetInstallFolder(
+        MSIHANDLE hInstall)
     {
-        wchar_t buf[MAX_PATH] = {0};
+        wchar_t buffer[MAX_PATH] = {};
+
         DWORD size = MAX_PATH;
-        MsiGetPropertyW(hInstall, L"CustomActionData", buf, &size);
-        return buf; // CustomActionData is set to INSTALLFOLDER by Product.wxs binding, see note below
+
+        UINT result =
+            MsiGetPropertyW(
+                hInstall,
+                L"CustomActionData",
+                buffer,
+                &size);
+
+        if (result != ERROR_SUCCESS)
+            return L"";
+
+        return std::wstring(buffer);
     }
 
-    // Ensures the "PDF Printer Port Monitor" is registered with the spooler
-    // (AddMonitorW). Idempotent: ERROR_PRINT_MONITOR_ALREADY_INSTALLED is
-    // treated as success so repeated/repair installs don't fail.
-    bool EnsureMonitorRegistered(const std::wstring& driverDir)
+
+    // ---------------------------------------------------------
+    // Register port monitor
+    // ---------------------------------------------------------
+
+    bool EnsureMonitorRegistered(
+        const std::wstring& driverDir)
     {
-        MONITOR_INFO_2W info = {0};
-        info.pName          = const_cast<LPWSTR>(kMonitorName);
-        info.pEnvironment    = const_cast<LPWSTR>(L"Windows x64");
-        std::wstring dllPath = driverDir + L"\\" + kMonitorDll;
-        info.pDLLName        = const_cast<LPWSTR>(dllPath.c_str());
+        MONITOR_INFO_2W info = {};
 
-        BOOL ok = AddMonitorW(nullptr, 2, reinterpret_cast<LPBYTE>(&info));
-        if (ok) return true;
-        return GetLastError() == ERROR_PRINT_MONITOR_ALREADY_INSTALLED;
+        info.pName =
+            const_cast<LPWSTR>(
+                kMonitorName);
+
+        info.pEnvironment =
+            const_cast<LPWSTR>(
+                L"Windows x64");
+
+        std::wstring dllPath =
+            driverDir +
+            L"\\" +
+            kMonitorDll;
+
+        info.pDLLName =
+            const_cast<LPWSTR>(
+                dllPath.c_str());
+
+        BOOL result =
+            AddMonitorW(
+                nullptr,
+                2,
+                reinterpret_cast<LPBYTE>(
+                    &info));
+
+        if (result)
+            return true;
+
+        DWORD error =
+            GetLastError();
+
+        return error ==
+            ERROR_PRINT_MONITOR_ALREADY_INSTALLED;
     }
 
-    // Registers the printer driver, referencing the Microsoft-signed inbox
-    // XPS driver rather than shipping our own kernel/driver payload.
+
+    // ---------------------------------------------------------
+    // Register printer driver
+    // ---------------------------------------------------------
+
     bool EnsureDriverRegistered()
     {
-        DRIVER_INFO_3W info = {0};
-        info.cVersion         = 3; // v3 driver-info level = "Type 4/kernel-mode-free" driver model
-        info.pName            = const_cast<LPWSTR>(kDriverName);
-        info.pEnvironment     = const_cast<LPWSTR>(L"Windows x64");
-        info.pDriverPath      = const_cast<LPWSTR>(L"mxdwdrv.dll");
-        info.pDataFile        = const_cast<LPWSTR>(L"mxdwdrv.dll");
-        info.pConfigFile      = const_cast<LPWSTR>(L"mxdwdui.dll");
-        info.pMonitorName     = const_cast<LPWSTR>(kMonitorName);
+        DRIVER_INFO_3W info = {};
 
-        BOOL ok = AddPrinterDriverExW(
-            nullptr, 3, reinterpret_cast<LPBYTE>(&info),
-            APD_COPY_ALL_FILES | APD_INSTALL_WARNED_DRIVER);
-        if (ok) return true;
+        info.cVersion = 3;
 
-        DWORD err = GetLastError();
-        return err == ERROR_PRINTER_DRIVER_ALREADY_INSTALLED;
+        info.pName =
+            const_cast<LPWSTR>(
+                kDriverName);
+
+        info.pEnvironment =
+            const_cast<LPWSTR>(
+                L"Windows x64");
+
+        info.pDriverPath =
+            const_cast<LPWSTR>(
+                L"mxdwdrv.dll");
+
+        info.pDataFile =
+            const_cast<LPWSTR>(
+                L"mxdwdrv.dll");
+
+        info.pConfigFile =
+            const_cast<LPWSTR>(
+                L"mxdwdui.dll");
+
+        info.pMonitorName =
+            const_cast<LPWSTR>(
+                kMonitorName);
+
+
+        //
+        // Windows SDK compatible call.
+        //
+        // AddPrinterDriverExW takes FOUR arguments:
+        //
+        //   1. printer server
+        //   2. driver information level
+        //   3. driver information structure
+        //   4. copy flags
+        //
+        // We intentionally do NOT use
+        // APD_INSTALL_WARNED_DRIVER because it is not
+        // available in the Windows SDK used by the
+        // GitHub Actions runner.
+        //
+
+        BOOL result =
+            AddPrinterDriverExW(
+                nullptr,
+                3,
+                reinterpret_cast<LPBYTE>(
+                    &info),
+                APD_COPY_ALL_FILES);
+
+        if (result)
+            return true;
+
+        DWORD error =
+            GetLastError();
+
+        //
+        // Driver already installed is not a failure.
+        //
+
+        if (error ==
+            ERROR_PRINTER_DRIVER_ALREADY_INSTALLED)
+        {
+            return true;
+        }
+
+        return false;
     }
+
+
+    // ---------------------------------------------------------
+    // Add PDF printer port
+    // ---------------------------------------------------------
 
     bool EnsurePortAdded()
     {
-        // Uses the Xcv "AddPort" data verb against our monitor, the same
-        // path the spooler's own "Add Port" UI uses for monitor-managed
-        // ports (see winspool XcvDataW documentation).
         HANDLE hXcv = nullptr;
-        PRINTER_DEFAULTSW defaults = {0};
-        defaults.DesiredAccess = SERVER_ACCESS_ADMINISTER;
-        std::wstring xcvName = L",XcvMonitor " + std::wstring(kMonitorName);
 
-        if (!OpenPrinterW(const_cast<LPWSTR>(xcvName.c_str()), &hXcv, &defaults))
+        PRINTER_DEFAULTSW defaults = {};
+
+        defaults.DesiredAccess =
+            SERVER_ACCESS_ADMINISTER;
+
+        std::wstring xcvName =
+            L",XcvMonitor " +
+            std::wstring(kMonitorName);
+
+
+        if (!OpenPrinterW(
+                const_cast<LPWSTR>(
+                    xcvName.c_str()),
+                &hXcv,
+                &defaults))
+        {
             return false;
+        }
+
+
+        std::wstring portName =
+            kPortName;
 
         DWORD needed = 0;
-        std::wstring portNameArg = kPortName;
-        BOOL ok = XcvDataW(hXcv, L"AddPort",
-            reinterpret_cast<PBYTE>(const_cast<LPWSTR>(portNameArg.c_str())),
-            static_cast<DWORD>((portNameArg.size() + 1) * sizeof(wchar_t)),
-            nullptr, 0, &needed, nullptr);
+
+
+        BOOL result =
+            XcvDataW(
+                hXcv,
+                L"AddPort",
+
+                reinterpret_cast<PBYTE>(
+                    const_cast<LPWSTR>(
+                        portName.c_str())),
+
+                static_cast<DWORD>(
+                    (portName.size() + 1) *
+                    sizeof(wchar_t)),
+
+                nullptr,
+                0,
+                &needed,
+                nullptr);
+
+
+        DWORD error =
+            GetLastError();
+
 
         ClosePrinter(hXcv);
-        return ok || GetLastError() == ERROR_INVALID_PARAMETER; // already exists
+
+
+        //
+        // Successful creation.
+        //
+
+        if (result)
+            return true;
+
+
+        //
+        // Some spooler versions return
+        // ERROR_INVALID_PARAMETER when the
+        // port already exists.
+        //
+
+        if (error ==
+            ERROR_INVALID_PARAMETER)
+        {
+            return true;
+        }
+
+
+        //
+        // Also accept "already exists" if
+        // returned by the spooler.
+        //
+
+        if (error ==
+            ERROR_FILE_EXISTS ||
+            error ==
+            ERROR_ALREADY_EXISTS)
+        {
+            return true;
+        }
+
+
+        return false;
     }
+
+
+    // ---------------------------------------------------------
+    // Create printer queue
+    // ---------------------------------------------------------
 
     bool EnsurePrinterAdded()
     {
-        PRINTER_INFO_2W info = {0};
-        info.pPrinterName  = const_cast<LPWSTR>(kPrinterName);
-        info.pDriverName   = const_cast<LPWSTR>(kDriverName);
-        info.pPortName     = const_cast<LPWSTR>(kPortName);
-        info.pPrintProcessor = const_cast<LPWSTR>(L"winprint");
-        info.pDatatype     = const_cast<LPWSTR>(L"RAW");
-        info.Attributes    = PRINTER_ATTRIBUTE_LOCAL;
+        PRINTER_INFO_2W info = {};
+
+        info.pPrinterName =
+            const_cast<LPWSTR>(
+                kPrinterName);
+
+        info.pDriverName =
+            const_cast<LPWSTR>(
+                kDriverName);
+
+        info.pPortName =
+            const_cast<LPWSTR>(
+                kPortName);
+
+        info.pPrintProcessor =
+            const_cast<LPWSTR>(
+                L"winprint");
+
+        info.pDatatype =
+            const_cast<LPWSTR>(
+                L"RAW");
+
+        info.Attributes =
+            PRINTER_ATTRIBUTE_LOCAL;
+
         info.DefaultPriority = 1;
 
-        HANDLE hPrinter = AddPrinterW(nullptr, 2, reinterpret_cast<LPBYTE>(&info));
+
+        HANDLE hPrinter =
+            AddPrinterW(
+                nullptr,
+                2,
+                reinterpret_cast<LPBYTE>(
+                    &info));
+
+
         if (hPrinter)
         {
             ClosePrinter(hPrinter);
             return true;
         }
-        return GetLastError() == ERROR_PRINTER_ALREADY_EXISTS;
+
+
+        DWORD error =
+            GetLastError();
+
+
+        return error ==
+            ERROR_PRINTER_ALREADY_EXISTS;
     }
 }
 
-extern "C" __declspec(dllexport)
-UINT __stdcall RegisterPrinter(MSIHANDLE hInstall)
-{
-    // CustomActionData carries "INSTALLFOLDER\Driver" set via a
-    // CustomActionRef property in Product.wxs (Set on the deferred CA);
-    // for brevity this is abbreviated here — see Scripts/build-all.ps1
-    // comment block for the exact `[~]`-separated CustomActionData binding
-    // used in the shipped Product.wxs SetProperty actions.
-    std::wstring driverDir = GetInstallFolder(hInstall);
-    if (driverDir.empty())
-        driverDir = L"C:\\Program Files\\PDFPrinter\\Driver";
 
-    LogMsi(hInstall, L"Registering printer driver...");
+// =============================================================
+// MSI Custom Action
+// =============================================================
+
+extern "C"
+__declspec(dllexport)
+UINT __stdcall RegisterPrinter(
+    MSIHANDLE hInstall)
+{
+    //
+    // CustomActionData contains the driver directory.
+    //
+
+    std::wstring driverDir =
+        GetInstallFolder(hInstall);
+
+
+    if (driverDir.empty())
+    {
+        driverDir =
+            L"C:\\Program Files\\PDFPrinter\\Driver";
+    }
+
+
+    // ---------------------------------------------------------
+    // Driver
+    // ---------------------------------------------------------
+
+    LogMsi(
+        hInstall,
+        L"Registering printer driver...");
+
+
     if (!EnsureDriverRegistered())
     {
-        LogMsi(hInstall, L"AddPrinterDriverExW failed, error " + std::to_wstring(GetLastError()));
+        DWORD error =
+            GetLastError();
+
+        LogMsi(
+            hInstall,
+            L"AddPrinterDriverExW failed, error " +
+            std::to_wstring(error));
+
         return ERROR_INSTALL_FAILURE;
     }
 
-    LogMsi(hInstall, L"Registering port monitor...");
-    if (!EnsureMonitorRegistered(driverDir))
+
+    // ---------------------------------------------------------
+    // Port monitor
+    // ---------------------------------------------------------
+
+    LogMsi(
+        hInstall,
+        L"Registering port monitor...");
+
+
+    if (!EnsureMonitorRegistered(
+            driverDir))
     {
-        LogMsi(hInstall, L"AddMonitorW failed, error " + std::to_wstring(GetLastError()));
+        DWORD error =
+            GetLastError();
+
+        LogMsi(
+            hInstall,
+            L"AddMonitorW failed, error " +
+            std::to_wstring(error));
+
         return ERROR_INSTALL_FAILURE;
     }
 
-    LogMsi(hInstall, L"Adding port...");
+
+    // ---------------------------------------------------------
+    // Port
+    // ---------------------------------------------------------
+
+    LogMsi(
+        hInstall,
+        L"Adding port...");
+
+
     if (!EnsurePortAdded())
     {
-        LogMsi(hInstall, L"AddPort failed, error " + std::to_wstring(GetLastError()));
+        DWORD error =
+            GetLastError();
+
+        LogMsi(
+            hInstall,
+            L"AddPort failed, error " +
+            std::to_wstring(error));
+
         return ERROR_INSTALL_FAILURE;
     }
 
-    LogMsi(hInstall, L"Creating printer queue \"PDF Printer\"...");
+
+    // ---------------------------------------------------------
+    // Printer queue
+    // ---------------------------------------------------------
+
+    LogMsi(
+        hInstall,
+        L"Creating printer queue \"PDF Printer\"...");
+
+
     if (!EnsurePrinterAdded())
     {
-        LogMsi(hInstall, L"AddPrinterW failed, error " + std::to_wstring(GetLastError()));
+        DWORD error =
+            GetLastError();
+
+        LogMsi(
+            hInstall,
+            L"AddPrinterW failed, error " +
+            std::to_wstring(error));
+
         return ERROR_INSTALL_FAILURE;
     }
 
-    LogMsi(hInstall, L"Registering North America 4x6 paper size...");
-    DWORD formErr = RegisterNorthAmerica4x6Form(kPrinterName);
-    if (formErr != ERROR_SUCCESS)
+
+    // ---------------------------------------------------------
+    // 4x6 paper size
+    // ---------------------------------------------------------
+
+    LogMsi(
+        hInstall,
+        L"Registering North America 4x6 paper size...");
+
+
+    DWORD formError =
+        RegisterNorthAmerica4x6Form(
+            kPrinterName);
+
+
+    if (formError != ERROR_SUCCESS)
     {
-        LogMsi(hInstall, L"AddFormW failed, error " + std::to_wstring(formErr));
+        LogMsi(
+            hInstall,
+            L"AddFormW failed, error " +
+            std::to_wstring(formError));
+
         return ERROR_INSTALL_FAILURE;
     }
 
-    LogMsi(hInstall, L"PDF Printer registered successfully.");
+
+    // ---------------------------------------------------------
+    // Success
+    // ---------------------------------------------------------
+
+    LogMsi(
+        hInstall,
+        L"PDF Printer registered successfully.");
+
+
     return ERROR_SUCCESS;
 }
