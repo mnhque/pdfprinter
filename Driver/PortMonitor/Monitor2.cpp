@@ -1,12 +1,3 @@
-// Monitor2.cpp
-//
-// Implements InitializePrintMonitor2 — the required export the Windows
-// Print Spooler looks up in pdfpm.dll after AddMonitor().
-//
-// This file binds the PDF Printer functions into the documented MONITOR2
-// interface. The actual spool-file handling is implemented in
-// SpoolWriter.cpp.
-
 #include "PortMonitor.h"
 
 #include <shlwapi.h>
@@ -16,10 +7,6 @@
 
 #pragma comment(lib, "shlwapi.lib")
 
-// ---------------------------------------------------------------------------
-// Open port tracking
-// ---------------------------------------------------------------------------
-
 static std::unordered_map<
     HANDLE,
     std::unique_ptr<PdfPrinterPort>
@@ -28,9 +15,9 @@ static std::unordered_map<
 static std::mutex g_openPortsLock;
 
 
-// ---------------------------------------------------------------------------
+// ============================================================
 // OpenPort
-// ---------------------------------------------------------------------------
+// ============================================================
 
 BOOL WINAPI Pdf_OpenPort(
     HANDLE /*hMonitor*/,
@@ -47,7 +34,8 @@ BOOL WINAPI Pdf_OpenPort(
 
     port->portName = pName;
 
-    HANDLE handle = reinterpret_cast<HANDLE>(port.get());
+    HANDLE handle =
+        reinterpret_cast<HANDLE>(port.get());
 
     {
         std::lock_guard<std::mutex> lock(g_openPortsLock);
@@ -61,12 +49,9 @@ BOOL WINAPI Pdf_OpenPort(
 }
 
 
-// ---------------------------------------------------------------------------
+// ============================================================
 // StartDocPort
-//
-// A print job has started.
-// Creates the XPS spool file and records job information.
-// ---------------------------------------------------------------------------
+// ============================================================
 
 BOOL WINAPI Pdf_StartDocPort(
     HANDLE hPort,
@@ -87,8 +72,11 @@ BOOL WINAPI Pdf_StartDocPort(
 
     PdfPrinterPort& p = *it->second;
 
-    p.printerName = pPrinterName ? pPrinterName : L"";
+    p.printerName =
+        pPrinterName ? pPrinterName : L"";
+
     p.jobIdSpooler = JobId;
+
     p.jobId = GenerateJobGuid();
 
     if (!EnsureSpoolDirectoryExists())
@@ -105,11 +93,6 @@ BOOL WINAPI Pdf_StartDocPort(
          << L".xps";
 
     p.jobFilePath = path.str();
-
-
-    // -----------------------------------------------------------------------
-    // Resolve the submitting user's SID.
-    // -----------------------------------------------------------------------
 
     HANDLE hToken = nullptr;
 
@@ -129,38 +112,34 @@ BOOL WINAPI Pdf_StartDocPort(
 
         if (needed > 0)
         {
-            std::vector<BYTE> buf(needed);
+            std::vector<BYTE> buffer(needed);
 
             if (GetTokenInformation(
                 hToken,
                 TokenUser,
-                buf.data(),
+                buffer.data(),
                 needed,
                 &needed))
             {
-                auto* tokenUser =
-                    reinterpret_cast<TOKEN_USER*>(buf.data());
+                TOKEN_USER* tokenUser =
+                    reinterpret_cast<TOKEN_USER*>(
+                        buffer.data());
 
-                LPWSTR sidStr = nullptr;
+                LPWSTR sidString = nullptr;
 
                 if (ConvertSidToStringSidW(
                     tokenUser->User.Sid,
-                    &sidStr))
+                    &sidString))
                 {
-                    p.userSid = sidStr;
+                    p.userSid = sidString;
 
-                    LocalFree(sidStr);
+                    LocalFree(sidString);
                 }
             }
         }
 
         CloseHandle(hToken);
     }
-
-
-    // -----------------------------------------------------------------------
-    // Create the spool file.
-    // -----------------------------------------------------------------------
 
     p.fileHandle = CreateFileW(
         p.jobFilePath.c_str(),
@@ -171,13 +150,18 @@ BOOL WINAPI Pdf_StartDocPort(
         FILE_ATTRIBUTE_NORMAL,
         nullptr);
 
-    return p.fileHandle != INVALID_HANDLE_VALUE;
+    if (p.fileHandle == INVALID_HANDLE_VALUE)
+    {
+        return FALSE;
+    }
+
+    return TRUE;
 }
 
 
-// ---------------------------------------------------------------------------
+// ============================================================
 // WritePort
-// ---------------------------------------------------------------------------
+// ============================================================
 
 BOOL WINAPI Pdf_WritePort(
     HANDLE hPort,
@@ -201,7 +185,8 @@ BOOL WINAPI Pdf_WritePort(
         p = it->second.get();
     }
 
-    std::lock_guard<std::mutex> writeLock(p->writeLock);
+    std::lock_guard<std::mutex> writeLock(
+        p->writeLock);
 
     if (p->fileHandle == INVALID_HANDLE_VALUE)
     {
@@ -218,11 +203,9 @@ BOOL WINAPI Pdf_WritePort(
 }
 
 
-// ---------------------------------------------------------------------------
+// ============================================================
 // ReadPort
-//
-// This port monitor is write-only.
-// ---------------------------------------------------------------------------
+// ============================================================
 
 BOOL WINAPI Pdf_ReadPort(
     HANDLE /*hPort*/,
@@ -239,12 +222,9 @@ BOOL WINAPI Pdf_ReadPort(
 }
 
 
-// ---------------------------------------------------------------------------
+// ============================================================
 // EndDocPort
-//
-// Closes the spool file, writes the manifest, and notifies the
-// Conversion Service that the job is ready.
-// ---------------------------------------------------------------------------
+// ============================================================
 
 BOOL WINAPI Pdf_EndDocPort(
     HANDLE hPort)
@@ -265,38 +245,34 @@ BOOL WINAPI Pdf_EndDocPort(
         p = it->second.get();
     }
 
-
     if (p->fileHandle != INVALID_HANDLE_VALUE)
     {
         CloseHandle(p->fileHandle);
 
-        p->fileHandle = INVALID_HANDLE_VALUE;
+        p->fileHandle =
+            INVALID_HANDLE_VALUE;
     }
 
-
-    if (!WriteJobManifest(
+    WriteJobManifest(
         *p,
-        /*pageCountHint*/ 0))
-    {
-        OutputDebugStringW(
-            L"PDFPrinter: manifest write failed, continuing.");
-    }
+        0);
 
-
-    SignalJobReady(p->jobId);
+    SignalJobReady(
+        p->jobId);
 
     return TRUE;
 }
 
 
-// ---------------------------------------------------------------------------
+// ============================================================
 // ClosePort
-// ---------------------------------------------------------------------------
+// ============================================================
 
 BOOL WINAPI Pdf_ClosePort(
     HANDLE hPort)
 {
-    std::lock_guard<std::mutex> lock(g_openPortsLock);
+    std::lock_guard<std::mutex> lock(
+        g_openPortsLock);
 
     auto it = g_openPorts.find(hPort);
 
@@ -312,9 +288,9 @@ BOOL WINAPI Pdf_ClosePort(
 }
 
 
-// ---------------------------------------------------------------------------
+// ============================================================
 // XcvOpenPort
-// ---------------------------------------------------------------------------
+// ============================================================
 
 BOOL WINAPI Pdf_XcvOpenPort(
     HANDLE /*hMonitor*/,
@@ -328,22 +304,18 @@ BOOL WINAPI Pdf_XcvOpenPort(
         return FALSE;
     }
 
-    // Stateless Xcv handle.
-    *phXcv = reinterpret_cast<HANDLE>(1);
+    *phXcv =
+        reinterpret_cast<HANDLE>(1);
 
     return TRUE;
 }
 
 
-// ---------------------------------------------------------------------------
+// ============================================================
 // XcvDataPort
 //
-// IMPORTANT:
-// MONITOR2::pfnXcvDataPort has a DWORD return type.
-//
-// Supported operation:
-//     "MonitorUI"
-// ---------------------------------------------------------------------------
+// IMPORTANT: DWORD return type.
+// ============================================================
 
 DWORD WINAPI Pdf_XcvDataPort(
     HANDLE /*hXcv*/,
@@ -359,11 +331,6 @@ DWORD WINAPI Pdf_XcvDataPort(
         return ERROR_INVALID_PARAMETER;
     }
 
-
-    // -----------------------------------------------------------------------
-    // MonitorUI
-    // -----------------------------------------------------------------------
-
     if (pszDataName &&
         lstrcmpW(
             pszDataName,
@@ -373,17 +340,14 @@ DWORD WINAPI Pdf_XcvDataPort(
             L"pdfpmui.dll";
 
         *pcbOutputNeeded =
-            static_cast<DWORD>(sizeof(uiDll));
-
+            static_cast<DWORD>(
+                sizeof(uiDll));
 
         if (!pOutputData ||
             cbOutputData < sizeof(uiDll))
         {
-            SetLastError(ERROR_INSUFFICIENT_BUFFER);
-
             return ERROR_INSUFFICIENT_BUFFER;
         }
-
 
         memcpy(
             pOutputData,
@@ -393,20 +357,13 @@ DWORD WINAPI Pdf_XcvDataPort(
         return ERROR_SUCCESS;
     }
 
-
-    // -----------------------------------------------------------------------
-    // Unsupported Xcv operation.
-    // -----------------------------------------------------------------------
-
-    SetLastError(ERROR_NOT_SUPPORTED);
-
     return ERROR_NOT_SUPPORTED;
 }
 
 
-// ---------------------------------------------------------------------------
+// ============================================================
 // XcvClosePort
-// ---------------------------------------------------------------------------
+// ============================================================
 
 BOOL WINAPI Pdf_XcvClosePort(
     HANDLE /*hXcv*/)
@@ -415,35 +372,41 @@ BOOL WINAPI Pdf_XcvClosePort(
 }
 
 
-// ---------------------------------------------------------------------------
+// ============================================================
+// MONITOR2
+// ============================================================
+
+static MONITOR2 g_monitor2 = {};
+
+
+// ============================================================
 // InitializePrintMonitor2
 //
-// The Windows SDK already declares this function through winsplp.h.
+// This is intentionally NOT declared in PortMonitor.h.
+// winsplp.h already declares it.
 //
-// IMPORTANT:
-// Do NOT add "extern C" here. That was causing the previous
-// "redefinition; different linkage" error.
+// The definition below matches Microsoft's SDK declaration:
 //
-// Returns the MONITOR2 function table to the Windows Print Spooler.
-// ---------------------------------------------------------------------------
+// LPMONITOR2 WINAPI InitializePrintMonitor2(
+//     PMONITORINIT pMonitorInit,
+//     PHANDLE phMonitor);
+// ============================================================
 
-static MONITOR2 g_monitor2 = { 0 };
-
-__declspec(dllexport)
-PMONITOR2 WINAPI InitializePrintMonitor2(
+LPMONITOR2 WINAPI InitializePrintMonitor2(
     PMONITORINIT /*pMonitorInit*/,
     PHANDLE phMonitor)
 {
     if (!phMonitor)
     {
+        SetLastError(
+            ERROR_INVALID_PARAMETER);
+
         return nullptr;
     }
-
 
     ZeroMemory(
         &g_monitor2,
         sizeof(g_monitor2));
-
 
     g_monitor2.cbSize =
         sizeof(MONITOR2);
@@ -475,30 +438,22 @@ PMONITOR2 WINAPI InitializePrintMonitor2(
     g_monitor2.pfnXcvClosePort =
         Pdf_XcvClosePort;
 
-
     *phMonitor =
-        reinterpret_cast<HANDLE>(&g_monitor2);
-
+        reinterpret_cast<HANDLE>(
+            &g_monitor2);
 
     return &g_monitor2;
 }
 
 
-// ---------------------------------------------------------------------------
+// ============================================================
 // DLL entry point
-// ---------------------------------------------------------------------------
+// ============================================================
 
 BOOL APIENTRY DllMain(
     HMODULE /*hModule*/,
-    DWORD reason,
+    DWORD /*reason*/,
     LPVOID /*lpReserved*/)
 {
-    switch (reason)
-    {
-        case DLL_PROCESS_ATTACH:
-        case DLL_PROCESS_DETACH:
-            break;
-    }
-
     return TRUE;
 }
