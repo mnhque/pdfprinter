@@ -9,6 +9,10 @@
 
 #include <windows.h>
 #include <winspool.h>
+#include <winsplp.h>
+#include <sddl.h>
+#include <shlobj.h>
+
 #include <string>
 #include <memory>
 #include <mutex>
